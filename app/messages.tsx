@@ -28,6 +28,7 @@ export default function MessageDashboardScreen() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(auth.currentUser?.uid || null);
   const [loading, setLoading] = useState(true);
 
+  // 1. Listen to user session updates
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       setCurrentUserId(user ? user.uid : null);
@@ -36,6 +37,38 @@ export default function MessageDashboardScreen() {
     return () => unsubscribeAuth();
   }, []);
 
+  // 2. FIXED INTEGRATION: Listens for incoming calls and maps parameters from callData safely
+  useEffect(() => {
+    if (!currentUserId) return;
+
+    console.log("🔕 Background VoIP call listener active for UID:", currentUserId);
+    const callSignalDocRef = doc(db, "calls", currentUserId);
+
+    const unsubscribeCallListener = onSnapshot(callSignalDocRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const callData = snapshot.data();
+        
+        // Intercept execution and force open the dedicated overlay calling interface screen
+        if (callData.signalState === 'ringing') {
+          console.log("🔔 INCOMING CALL SIGNAL MATCHED! Launching call room viewport...");
+
+          router.push({
+            // Type-casting as 'any' bypasses the Typed Routes validation engine smoothly
+            pathname: `/call/${callData.callRoomId}` as any,
+            params: {
+              rtcToken: callData.rtcToken,
+              callType: callData.callType,
+              callerId: callData.callerId
+            }
+          });
+        }
+      }
+    });
+
+    return () => unsubscribeCallListener();
+  }, [currentUserId]);
+
+  // 3. Query flat messages collection to construct the active threads list
   useEffect(() => {
     if (!currentUserId) return;
 
@@ -54,14 +87,9 @@ export default function MessageDashboardScreen() {
           const senderId = data.senderId || "";
           const receiverId = data.receiverId || "";
           
-          // 1. CRITICAL STANDARDIZATION STEP
-          // Always calculate a clean, sorted room signature using both participant IDs.
-          // This forces 'UserA_UserB' and 'UserB_UserA' to combine into the exact same list item row!
           if (senderId && receiverId && (senderId === currentUserId || receiverId === currentUserId)) {
             const normalizedChatId = [senderId, receiverId].sort().join('_');
 
-            // Because our query is sorted by 'desc', the first message we find for this 
-            // combined thread is guaranteed to be the most recent one across both users.
             if (!latestMessageMap[normalizedChatId]) {
               latestMessageMap[normalizedChatId] = {
                 id: doc.id,
@@ -75,16 +103,13 @@ export default function MessageDashboardScreen() {
           }
         });
 
-        // 2. Map grouped results into single unified structures
         const summaryList: ConversationSummary[] = Object.keys(latestMessageMap).map((normalizedId) => {
           const lastMsg = latestMessageMap[normalizedId];
-          
-          // Isolate the target recipient's UID cleanly
           const parts = normalizedId.split("_");
           const targetUserId = parts[0] === currentUserId ? parts[1] : parts[0];
 
           return {
-            chatId: lastMsg.chatId, // Passes the actual working ID parameter used for routing
+            chatId: lastMsg.chatId,
             targetUserId: targetUserId || "unknown_user",
             lastMessageText: lastMsg.text,
             createdAt: lastMsg.createdAt
@@ -137,15 +162,15 @@ export default function MessageDashboardScreen() {
     }
   }, [conversations]);
 
- const handleRoomPress = (item: ConversationSummary) => {
-router.push({
-  pathname: "/chat/[chatId]",
-  params: {
-    chatId: item.chatId,
-    receiverId: item.targetUserId
-  }
-});
-};
+  const handleRoomPress = (item: ConversationSummary) => {
+    router.push({
+      pathname: "/chat/[chatId]",
+      params: {
+        chatId: item.chatId,
+        receiverId: item.targetUserId
+      }
+    });
+  };
 
   const renderItem = ({ item }: { item: ConversationSummary }) => {
     const rawUidString = item.targetUserId || "unknown";

@@ -4,6 +4,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { auth, db } from '../../firebase/firebaseConfig';
 import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, writeBatch, Timestamp } from 'firebase/firestore';
 import { Audio } from 'expo-av';
+import { initiateVoipCallStream } from '../../services/callService';
+
 import * as DocumentPicker from 'expo-document-picker';
 import { uploadFile } from '../../services/storageService'; // Points to your exact upload utility
 
@@ -256,18 +258,41 @@ export default function UltimateWhatsAppScreen() {
     ]);
   };
 
-  const initializeVoipCall = async (callType: "audio" | "video") => {
-    Alert.alert(`Starting ${callType} Call`, "Connecting...", [
-      { text: "End Call", onPress: async () => {
-          await addDoc(collection(db, "messages"), {
-            chatId, senderId: currentUserId, receiverId, text: `📞 Call finished`,
-            createdAt: serverTimestamp(), status: "sent", messageType: "call_log", callDuration: "00:45",
-          });
-        }
-      }
-    ]);
-  };
+const initializeVoipCall = async (callType: 'audio' | 'video') => {
+  if (!chatId || !currentUserId || !receiverId) {
+    Alert.alert("Connection Error", "Unable to establish valid session parameters.");
+    return;
+  }
 
+  try {
+    console.log(`📡 Initializing signaling handshake sequence for cloud ${callType} call...`);
+    
+    // Trigger your service layer engine to fetch an Agora token from Render
+    const callSession = await initiateVoipCallStream({
+      chatId,
+      senderId: currentUserId,
+      receiverId,
+      callType
+    });
+
+    console.log("✅ Signaling pipeline live. Launching local calling room view...");
+
+    // Automatically navigate your screen route straight to your call screen viewport page
+   router.push({
+  // Type-casting as 'any' bypasses the Typed Routes validation engine until it updates its cache maps
+  pathname: `/call/${callSession.callRoomId}` as any,
+  params: {
+    rtcToken: callSession.rtcToken,
+    callType: callType,
+    callerId: currentUserId
+  }
+});
+
+  } catch (err: any) {
+    console.error("❌ VOIP HANDSHAKE RUNTIME CRASH:", err);
+    Alert.alert("Call Failure", "Your calling server could not generate a secure communication token.");
+  }
+};
   // Continued in Part 3...
   // ==========================================
   // 5. INTERFACE RENDER ENGINE
