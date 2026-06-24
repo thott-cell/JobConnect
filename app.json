@@ -1,6 +1,7 @@
 {
   "expo": {
     "name": "JobConnect",
+    "jsEngine": "hermes",
     "slug": "JobConnect",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -38,7 +39,8 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true,
